@@ -119,14 +119,15 @@ void notification_print(const struct notification *n)
 void notification_run_script(struct notification *n)
 {
         LOG_D("notification_run_script");
-        notification_run_generic_script(n, n->scripts);
+        notification_run_generic_script(n, n->scripts, n->script_count);
 }
 
 /* see notification.h */
 void notification_run_insert_script(struct notification *n)
 {
         LOG_D("notification_run_insert_script");
-        notification_run_generic_script(n, n->insert_scripts);
+        notification_run_generic_script(n, n->insert_scripts,
+                                        n->insert_script_count);
 }
 
 /**
@@ -136,7 +137,8 @@ void notification_run_insert_script(struct notification *n)
  * If the script of the notification has been executed already and
  * settings.always_run_script is not set, do nothing.
  */
-void notification_run_generic_script(struct notification *n, char **scripts)
+void notification_run_generic_script(struct notification *n, char **scripts,
+                                     int script_count)
 {
         LOG_D("notification_run_generic_script");
         if (n->script_run && !settings.always_run_script)
@@ -151,7 +153,7 @@ void notification_run_generic_script(struct notification *n, char **scripts)
 
         const char *urgency = notification_urgency_to_string(n->urgency);
 
-        for(int i = 0; i < n->script_count; i++) {
+        for(int i = 0; i < script_count; i++) {
 
                 const char *script = scripts[i];
 
