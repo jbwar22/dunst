@@ -103,12 +103,39 @@ void notification_print(const struct notification *n)
                 }
                 printf("\n");
         }
+        printf("\tinsert_script_count: %d\n", n->insert_script_count);
+        if (n->insert_script_count > 0) {
+                printf("\tinsert_scripts: ");
+                for (int i = 0; i < n->insert_script_count; i++) {
+                        printf("'%s' ", STR_NN(n->insert_scripts[i]));
+                }
+                printf("\n");
+        }
         printf("}\n");
         fflush(stdout);
 }
 
 /* see notification.h */
 void notification_run_script(struct notification *n)
+{
+    notification_run_generic_script(n, n->scripts);
+}
+
+/* see notification.h */
+void notification_run_insert_script(struct notification *n)
+{
+    LOG_D("notification_run_insert_script");
+    notification_run_generic_script(n, n->insert_scripts);
+}
+
+/**
+ * Run scripts associated with the given
+ * notification from the given script category
+ *
+ * If the script of the notification has been executed already and
+ * settings.always_run_script is not set, do nothing.
+ */
+void notification_run_generic_script(struct notification *n, char **scripts)
 {
         if (n->script_run && !settings.always_run_script)
                 return;
@@ -124,7 +151,7 @@ void notification_run_script(struct notification *n)
 
         for(int i = 0; i < n->script_count; i++) {
 
-                const char *script = n->scripts[i];
+                const char *script = scripts[i];
 
                 if (STR_EMPTY(script))
                         continue;
@@ -169,7 +196,7 @@ void notification_run_script(struct notification *n)
                                                 urgency,
                                                 (char *)NULL);
 
-                                LOG_W("Unable to run script %s: %s", n->scripts[i], strerror(errno));
+                                LOG_W("Unable to run script %s: %s", scripts[i], strerror(errno));
                                 exit(EXIT_FAILURE);
                         }
                 }
@@ -461,6 +488,8 @@ struct notification *notification_create(void)
         n->default_action_name = g_strdup("default");
 
         n->script_count = 0;
+
+        n->insert_script_count = 0;
         return n;
 }
 

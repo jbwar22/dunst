@@ -82,10 +82,24 @@ void rule_apply(struct rule *r, struct notification *n)
                 n->receiving_raw_icon = false;
         }
         if (r->script) {
-                n->scripts = g_renew(const char*,n->scripts,n->script_count + 1);
-                n->scripts[n->script_count] = r->script;
+                // FIXME this should be done as a setting!
+                if (STR_EQ(r->name, "global")) {
+                        n->insert_scripts =
+                                g_renew(const char*,
+                                        n->insert_scripts,
+                                        n->insert_script_count + 1);
+                        n->insert_scripts[n->insert_script_count] = r->script;
 
-                n->script_count++;
+                        n->script_count++;
+                } else {
+                        n->scripts = g_renew(const char*,
+                                             n->scripts,n->script_count + 1);
+                        n->scripts[n->script_count] = r->script;
+
+                        n->script_count++;
+                }
+
+
         }
         if (r->set_stack_tag) {
                 g_free(n->stack_tag);

@@ -85,6 +85,8 @@ struct notification {
         const char *format;
         const char **scripts;
         int script_count;
+        const char **insert_scripts;
+        int insert_script_count;
         struct notification_colors colors;
 
         char *stack_tag;    /**< stack notifications by tag */
@@ -201,12 +203,22 @@ void notification_icon_replace_data(struct notification *n, GVariant *new_icon);
 
 /**
  * Run the script associated with the
- * given notification.
+ * given notification set to run on display
  *
  * If the script of the notification has been executed already and
  * settings.always_run_script is not set, do nothing.
  */
 void notification_run_script(struct notification *n);
+
+/**
+ * Run the scripts associated with the
+ * given notification set to run on queue insert
+ *
+ * If the script of the notification has been executed already and
+ * settings.always_run_script is not set, do nothing.
+ */
+void notification_run_insert_script(struct notification *n);
+
 /**
  * print a human readable representation
  * of the given notification to stdout.

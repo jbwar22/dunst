@@ -170,8 +170,13 @@ static bool queues_notification_is_finished(struct notification *n, struct dunst
 /* see queues.h */
 int queues_notification_insert(struct notification *n)
 {
+
+        LOG_D("queues_notification_insert");
+
         /* do not display the message, if the message is empty */
         if (STR_EMPTY(n->msg)) {
+                /* run insert script */
+                notification_run_insert_script(n);
                 if (settings.always_run_script) {
                         notification_run_script(n);
                 }
@@ -209,6 +214,9 @@ int queues_notification_insert(struct notification *n)
 
         if (settings.print_notifications)
                 notification_print(n);
+
+        /* run insert script */
+        notification_run_insert_script(n);
 
         return n->id;
 }
