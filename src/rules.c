@@ -90,7 +90,7 @@ void rule_apply(struct rule *r, struct notification *n)
                                         n->insert_script_count + 1);
                         n->insert_scripts[n->insert_script_count] = r->script;
 
-                        n->script_count++;
+                        n->insert_script_count++;
                 } else {
                         n->scripts = g_renew(const char*,
                                              n->scripts,n->script_count + 1);
