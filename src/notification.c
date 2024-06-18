@@ -118,14 +118,15 @@ void notification_print(const struct notification *n)
 /* see notification.h */
 void notification_run_script(struct notification *n)
 {
-    notification_run_generic_script(n, n->scripts);
+        LOG_D("notification_run_script");
+        notification_run_generic_script(n, n->scripts);
 }
 
 /* see notification.h */
 void notification_run_insert_script(struct notification *n)
 {
-    LOG_D("notification_run_insert_script");
-    notification_run_generic_script(n, n->insert_scripts);
+        LOG_D("notification_run_insert_script");
+        notification_run_generic_script(n, n->insert_scripts);
 }
 
 /**
@@ -137,6 +138,7 @@ void notification_run_insert_script(struct notification *n)
  */
 void notification_run_generic_script(struct notification *n, char **scripts)
 {
+        LOG_D("notification_run_generic_script");
         if (n->script_run && !settings.always_run_script)
                 return;
 
@@ -155,6 +157,8 @@ void notification_run_generic_script(struct notification *n, char **scripts)
 
                 if (STR_EMPTY(script))
                         continue;
+
+                LOG_D("script running!");
 
                 int pid1 = fork();
 
