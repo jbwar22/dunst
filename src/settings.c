@@ -32,6 +32,7 @@
 #endif
 
 struct settings settings;
+bool print_notifications = false;
 
 /** @brief Filter for scandir().
  *
@@ -87,6 +88,7 @@ static void config_files_add_drop_ins(GPtrArray *config_files, const char *path)
 
         if (n == -1) {
                 // Scandir error. Most likely the directory doesn't exist.
+                g_free(drop_in_dir);
                 return;
         }
 
@@ -97,6 +99,8 @@ static void config_files_add_drop_ins(GPtrArray *config_files, const char *path)
                 g_ptr_array_insert(config_files, insert_index, drop_in);
                 g_free(drop_ins[n]);
         }
+
+        g_free(drop_in_dir);
         g_free(drop_ins);
 }
 
@@ -106,21 +110,12 @@ static void config_files_add_drop_ins(GPtrArray *config_files, const char *path)
  * drop-ins and puts their locations in a GPtrArray, @e most important last.
  *
  * The returned GPtrArray and it's elements are owned by the caller.
- *
- * @param path The config path that overrides the default config path. No
- * drop-in files or other configs are searched.
  */
-static GPtrArray* get_conf_files(const char *path) {
-        if (path) {
-                GPtrArray *result = g_ptr_array_new_full(1, g_free);
-                g_ptr_array_add(result, g_strdup(path));
-                return result;
-        }
-
+static GPtrArray* get_conf_files(void) {
         GPtrArray *config_locations = get_xdg_conf_basedirs();
         GPtrArray *config_files = g_ptr_array_new_full(3, g_free);
         char *dunstrc_location = NULL;
-        for (int i = 0; i < config_locations->len; i++) {
+        for (size_t i = 0; i < config_locations->len; i++) {
                 dunstrc_location = g_build_filename(config_locations->pdata[i],
                                 "dunstrc", NULL);
                 LOG_D("Trying config location: %s", dunstrc_location);
@@ -141,35 +136,13 @@ FILE *fopen_conf(char * const path)
         FILE *f = NULL;
         char *real_path = string_to_path(g_strdup(path));
 
-        if (is_readable_file(real_path) && (f = fopen(real_path, "r")))
+        if (is_readable_file(real_path) && NULL != (f = fopen(real_path, "r")))
                 LOG_I(MSG_FOPEN_SUCCESS(path, f));
         else
                 LOG_W(MSG_FOPEN_FAILURE(path));
 
         g_free(real_path);
         return f;
-}
-
-void settings_init(void) {
-        static bool init_done = false;
-        if (!init_done) {
-                LOG_D("Initializing settings");
-                settings = (struct settings) {0};
-
-                init_done = true;
-        }
-}
-
-// NOTE: This function is probably outdated and no longer relevant
-//       Since it does not even fully display rule information we
-//       may want to remove it or change it
-void print_rule(struct rule* r) {
-        LOG_D("Rule %s", STR_NN(r->name));
-        LOG_D("summary %s", STR_NN(r->summary));
-        LOG_D("appname %s", STR_NN(r->appname));
-        LOG_D("script %s", STR_NN(r->script));
-        char buf[10];
-        LOG_D("frame %s", STR_NN(color_to_string(r->fc, buf)));
 }
 
 void check_and_correct_settings(struct settings *s) {
@@ -289,27 +262,63 @@ static void process_conf_file(const gpointer conf_fname, gpointer n_success) {
         ++(*(int *) n_success);
 }
 
-void load_settings(const char *const path) {
-        // NOTE: settings_init should be called before if some settings are changed
-        //       But having it here is useful for tests
-        //       Potentially, we could update the settings code and move this somewhere else
-        settings_init();
+void load_settings(char **const paths)
+{
         LOG_D("Setting defaults");
         set_defaults();
 
-        GPtrArray *conf_files = get_conf_files(path);
+        guint length = g_strv_length(paths);
+
+        GPtrArray *conf_files;
+
+        if (length != 0) {
+                conf_files = g_ptr_array_new_full(length, g_free);
+                for (int i = 0; paths[i]; i++)
+                        g_ptr_array_add(conf_files, g_strdup(paths[i]));
+        } else {
+                // Use default locations (and search drop-ins)
+                conf_files = get_conf_files();
+        }
 
         /* Load all conf files and drop-ins, least important first. */
         int n_loaded_confs = 0;
         g_ptr_array_foreach(conf_files, process_conf_file, &n_loaded_confs);
 
         if (0 == n_loaded_confs)
-                LOG_I("No configuration file found, using defaults");
+                LOG_M("No configuration file found, using defaults");
 
-        for (GSList *iter = rules; iter; iter = iter->next) {
-                struct rule *r = iter->data;
-                print_rule(r);
-        }
         g_ptr_array_unref(conf_files);
 }
+
+void settings_free(struct settings *s)
+{
+        gradient_release(s->colors_low.highlight);
+        gradient_release(s->colors_norm.highlight);
+        gradient_release(s->colors_crit.highlight);
+
+        g_free(s->font);
+        g_free(s->format);
+        g_free(s->icons[0]);
+        g_free(s->icons[1]);
+        g_free(s->icons[2]);
+        g_free(s->title);
+        g_free(s->class);
+        g_free(s->monitor);
+        g_free(s->dmenu);
+        g_strfreev(s->dmenu_cmd);
+        g_free(s->browser);
+        g_strfreev(s->browser_cmd);
+        g_strfreev(s->icon_theme);
+        g_free(s->icon_path);
+
+        g_free(s->mouse_left_click);
+        g_free(s->mouse_middle_click);
+        g_free(s->mouse_right_click);
+
+        g_free(s->close_ks.str);
+        g_free(s->close_all_ks.str);
+        g_free(s->history_ks.str);
+        g_free(s->context_ks.str);
+}
+
 /* vim: set ft=c tabstop=8 shiftwidth=8 expandtab textwidth=0: */

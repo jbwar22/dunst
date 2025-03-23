@@ -3,7 +3,7 @@
 
 include config.mk
 
-VERSION := "1.11.0-non-git"
+VERSION := "1.12.2 (2025-03-05)"
 ifneq ($(wildcard ./.git/),)
 VERSION := $(shell ${GIT} describe --tags 2>/dev/null || echo ${VERSION})
 endif
@@ -74,9 +74,15 @@ debug: all
 
 ${OBJ} ${TEST_OBJ}: Makefile config.mk
 
+DATE_FMT = +%Y-%m-%d
+ifdef SOURCE_DATE_EPOCH
+    BUILD_DATE ?= $(shell date -u -d "@$(SOURCE_DATE_EPOCH)" "$(DATE_FMT)" 2>/dev/null || date -u -r "$(SOURCE_DATE_EPOCH)" "$(DATE_FMT)" 2>/dev/null || date -u "$(DATE_FMT)")
+else
+    BUILD_DATE ?= $(shell date "$(DATE_FMT)")
+endif
 src/dunst.o: src/dunst.c
 	${CC} -o $@ -c $< ${CPPFLAGS} ${CFLAGS} \
-		-D_CCDATE="$(shell date '+%Y-%m-%d')" -D_CFLAGS="$(filter-out $(filter -I%,${INCS}),${CFLAGS})" -D_LDFLAGS="${LDFLAGS}"
+		-D_CCDATE="${BUILD_DATE}" -D_CFLAGS="$(filter-out $(filter -I%,${INCS}),${CFLAGS})" -D_LDFLAGS="${LDFLAGS}"
 
 %.o: %.c
 	${CC} -o $@ -c $< ${CPPFLAGS} ${CFLAGS}
@@ -94,10 +100,10 @@ endif
 test: test/test clean-coverage-run
 	# Make sure an error code is returned when the test fails
 	/usr/bin/env bash -c 'set -euo pipefail;\
-	./test/test -v | ./test/greenest.awk '
+	TESTDIR=./test ./test/test -v | ./test/greenest.awk '
 
 test-valgrind: test/test
-	${VALGRIND} \
+	TESTDIR=./test ${VALGRIND} \
 		--suppressions=.valgrind.suppressions \
 		--leak-check=full \
 		--show-leak-kinds=definite \
@@ -128,7 +134,7 @@ functional-tests: dunst dunstify
 	PREFIX=. ./test/functional-tests/test.sh
 
 .PHONY: doc doc-doxygen
-doc: docs/dunst.1 docs/dunst.5 docs/dunstctl.1
+doc: docs/dunst.1 docs/dunst.5 docs/dunstctl.1 docs/dunstify.1
 
 # Can't dedup this as we need to explicitly provide the name and title text to
 # pod2man :(
@@ -138,6 +144,8 @@ docs/dunst.5: docs/dunst.5.pod
 	${POD2MAN} --name=dunst -c "Dunst Reference" --section=5 --release=${VERSION} $< > $@
 docs/dunstctl.1: docs/dunstctl.pod
 	${POD2MAN} --name=dunstctl -c "dunstctl reference" --section=1 --release=${VERSION} $< > $@
+docs/dunstify.1: docs/dunstify.pod
+	${POD2MAN} --name=dunstify -c "dunstify reference" --section=1 --release=${VERSION} $< > $@
 
 doc-doxygen:
 	${DOXYGEN} docs/internal/Doxyfile
@@ -195,6 +203,7 @@ clean-doc:
 	rm -f docs/dunst.1
 	rm -f docs/dunst.5
 	rm -f docs/dunstctl.1
+	rm -f docs/dunstify.1
 	rm -fr docs/internal/html
 	rm -fr docs/internal/coverage
 
@@ -224,6 +233,7 @@ install-dunst: dunst doc
 	install -Dm644 docs/dunst.1 ${DESTDIR}${MANPREFIX}/man1/dunst.1
 	install -Dm644 docs/dunst.5 ${DESTDIR}${MANPREFIX}/man5/dunst.5
 	install -Dm644 docs/dunstctl.1 ${DESTDIR}${MANPREFIX}/man1/dunstctl.1
+	install -Dm644 docs/dunstify.1 ${DESTDIR}${MANPREFIX}/man1/dunstify.1
 
 install-dunstctl: dunstctl
 	install -Dm755 dunstctl ${DESTDIR}${BINDIR}/dunstctl
@@ -273,6 +283,7 @@ uninstall-keepconf: uninstall-service uninstall-dunstctl uninstall-completions
 	rm -f ${DESTDIR}${MANPREFIX}/man1/dunst.1
 	rm -f ${DESTDIR}${MANPREFIX}/man5/dunst.5
 	rm -f ${DESTDIR}${MANPREFIX}/man1/dunstctl.1
+	rm -f ${DESTDIR}${MANPREFIX}/man1/dunstify.1
 
 uninstall-dunstrc:
 	rm -f ${DESTDIR}${SYSCONFFILE}

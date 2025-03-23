@@ -14,7 +14,7 @@
 
 // Note: Wayland doesn't support hotkeys
 struct keyboard_shortcut {
-        const char *str;
+        char *str;
 #ifdef ENABLE_X11
         KeyCode code;
         KeySym sym;
@@ -84,7 +84,7 @@ enum origin_values {
 // TODO make a TYPE_CMD, instead of using TYPE_PATH for settings like dmenu and browser
 enum setting_type { TYPE_MIN = 0, TYPE_INT, TYPE_DOUBLE, TYPE_STRING,
         TYPE_PATH, TYPE_TIME, TYPE_LIST, TYPE_CUSTOM, TYPE_LENGTH, TYPE_COLOR,
-        TYPE_DEPRECATED, TYPE_MAX = TYPE_DEPRECATED + 1 }; // to be implemented
+        TYPE_GRADIENT, TYPE_DEPRECATED, TYPE_MAX = TYPE_DEPRECATED + 1 }; // to be implemented
 
 struct separator_color_data {
         enum separator_color type;
@@ -180,10 +180,11 @@ struct settings {
 };
 
 extern struct settings settings;
+extern bool print_notifications;
 
-void settings_init(void);
+void load_settings(char **const config_paths);
 
-void load_settings(const char *const path);
+void settings_free(struct settings *s);
 
 #endif
 /* vim: set ft=c tabstop=8 shiftwidth=8 expandtab textwidth=0: */

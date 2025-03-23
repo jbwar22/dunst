@@ -25,7 +25,7 @@
 #include "notification.h"
 #include "settings.h"
 #include "utils.h"
-#include "output.h" // For checking if wayland is active.
+#include "rules.h"
 
 /* notification lists */
 static GQueue *waiting   = NULL; /**< all new notifications get into here */
@@ -212,7 +212,7 @@ int queues_notification_insert(struct notification *n)
                 notification_icon_replace_path(n, n->iconname);
         }
 
-        if (settings.print_notifications)
+        if (print_notifications)
                 notification_print(n);
 
         /* run insert script */
@@ -230,7 +230,7 @@ int queues_notification_insert(struct notification *n)
 static bool queues_stack_duplicate(struct notification *new)
 {
         GQueue *allqueues[] = { displayed, waiting };
-        for (int i = 0; i < sizeof(allqueues)/sizeof(GQueue*); i++) {
+        for (size_t i = 0; i < sizeof(allqueues)/sizeof(GQueue*); i++) {
                 for (GList *iter = g_queue_peek_head_link(allqueues[i]); iter;
                      iter = iter->next) {
                         struct notification *old = iter->data;
@@ -271,7 +271,7 @@ static bool queues_stack_duplicate(struct notification *new)
 static bool queues_stack_by_tag(struct notification *new)
 {
         GQueue *allqueues[] = { displayed, waiting };
-        for (int i = 0; i < sizeof(allqueues)/sizeof(GQueue*); i++) {
+        for (size_t i = 0; i < sizeof(allqueues)/sizeof(GQueue*); i++) {
                 for (GList *iter = g_queue_peek_head_link(allqueues[i]); iter;
                             iter = iter->next) {
                         struct notification *old = iter->data;
@@ -301,7 +301,7 @@ static bool queues_stack_by_tag(struct notification *new)
 bool queues_notification_replace_id(struct notification *new)
 {
         GQueue *allqueues[] = { displayed, waiting };
-        for (int i = 0; i < sizeof(allqueues)/sizeof(GQueue*); i++) {
+        for (size_t i = 0; i < sizeof(allqueues)/sizeof(GQueue*); i++) {
                 for (GList *iter = g_queue_peek_head_link(allqueues[i]);
                             iter;
                             iter = iter->next) {
@@ -324,12 +324,12 @@ bool queues_notification_replace_id(struct notification *new)
 }
 
 /* see queues.h */
-void queues_notification_close_id(int id, enum reason reason)
+void queues_notification_close_id(gint id, enum reason reason)
 {
         struct notification *target = NULL;
 
         GQueue *allqueues[] = { displayed, waiting };
-        for (int i = 0; i < sizeof(allqueues)/sizeof(GQueue*); i++) {
+        for (size_t i = 0; i < sizeof(allqueues)/sizeof(GQueue*); i++) {
                 for (GList *iter = g_queue_peek_head_link(allqueues[i]); iter;
                      iter = iter->next) {
                         struct notification *n = iter->data;
@@ -356,11 +356,19 @@ void queues_notification_close(struct notification *n, enum reason reason)
         queues_notification_close_id(n->id, reason);
 }
 
-/* see queues.h */
-void queues_history_clear(void)
+static void queues_destroy_notification(struct notification *n, gpointer user_data)
 {
-        g_queue_foreach(history, (GFunc)notification_unref, NULL);
+        (void)user_data;
+        notification_unref(n);
+}
+
+/* see queues.h */
+guint queues_history_clear(void)
+{
+        guint n = g_queue_get_length(history);
+        g_queue_foreach(history, (GFunc)queues_destroy_notification, NULL);
         g_queue_clear(history);
+        return n;
 }
 
 /* see queues.h */
@@ -376,7 +384,7 @@ void queues_history_pop(void)
 }
 
 /* see queues.h */
-void queues_history_pop_by_id(unsigned int id)
+void queues_history_pop_by_id(gint id)
 {
         struct notification *n = NULL;
 
@@ -407,7 +415,8 @@ void queues_history_pop_by_id(unsigned int id)
 void queues_history_push(struct notification *n)
 {
         if (!n->history_ignore) {
-                if (settings.history_length > 0 && history->length >= settings.history_length) {
+                guint maxlen = settings.history_length;
+                if (settings.history_length > 0 && history->length >= maxlen) {
                         struct notification *to_free = g_queue_pop_head(history);
                         notification_unref(to_free);
                 }
@@ -431,11 +440,11 @@ void queues_history_push_all(void)
 }
 
 /* see queues.h */
-void queues_history_remove_by_id(unsigned int id) {
+bool queues_history_remove_by_id(gint id) {
         struct notification *n = NULL;
 
         if (g_queue_is_empty(history))
-                return;
+                return false;
 
         for (GList *iter = g_queue_peek_head_link(history); iter;
                 iter = iter->next) {
@@ -447,10 +456,11 @@ void queues_history_remove_by_id(unsigned int id) {
         }
 
         if (n == NULL)
-                return;
+                return false;
 
         g_queue_remove(history, n);
         notification_unref(n);
+        return true;
 }
 
 /* see queues.h */
@@ -608,12 +618,12 @@ gint64 queues_get_next_datachange(gint64 time)
 
 
 /* see queues.h */
-struct notification* queues_get_by_id(int id)
+struct notification* queues_get_by_id(gint id)
 {
         assert(id > 0);
 
         GQueue *recqueues[] = { displayed, waiting, history };
-        for (int i = 0; i < sizeof(recqueues)/sizeof(GQueue*); i++) {
+        for (size_t i = 0; i < sizeof(recqueues)/sizeof(GQueue*); i++) {
                 for (GList *iter = g_queue_peek_head_link(recqueues[i]); iter;
                      iter = iter->next) {
                         struct notification *cur = iter->data;
@@ -623,6 +633,21 @@ struct notification* queues_get_by_id(int id)
         }
 
         return NULL;
+}
+
+void queues_reapply_all_rules(void)
+{
+        GQueue *recqueues[] = { displayed, waiting, history };
+        for (size_t i = 0; i < sizeof(recqueues)/sizeof(GQueue*); i++) {
+                for (GList *iter = g_queue_peek_head_link(recqueues[i]); iter;
+                     iter = iter->next) {
+                        struct notification *cur = iter->data;
+                        if (cur->original) {
+                                rule_apply(cur->original, cur, false);
+                        }
+                        rule_apply_all(cur);
+                }
+        }
 }
 
 /**

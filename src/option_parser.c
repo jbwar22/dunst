@@ -18,11 +18,7 @@
 
 static int cmdline_argc;
 static char **cmdline_argv;
-
 static char *usage_str = NULL;
-static void cmdline_usage_append(const char *key, const char *type, const char *description);
-
-static int cmdline_find_option(const char *key);
 
 #define STRING_PARSE_RET(string, value) if (STR_EQ(s, string)) { *ret = value; return true; }
 
@@ -239,6 +235,37 @@ int string_parse_color(const char *s, struct color *ret)
         return true;
 }
 
+int string_parse_gradient(const char *s, struct gradient **ret)
+{
+        struct color colors[16];
+        size_t length = 0;
+
+        gchar **strs = g_strsplit(s, ",", -1);
+        for (int i = 0; strs[i] != NULL; i++) {
+                if (i > 16) {
+                        LOG_W("Do you really need so many colors? ;)");
+                        break;
+                }
+
+                if (!string_parse_color(g_strstrip(strs[i]), &colors[length++])) {
+                        g_strfreev(strs);
+                        return false;
+                }
+        }
+
+        g_strfreev(strs);
+        if (length == 0) {
+                LOG_W("Provide at least one color");
+                return false;
+        }
+
+        *ret = gradient_alloc(length);
+        memcpy((*ret)->colors, colors, length * sizeof(struct color));
+        gradient_pattern(*ret);
+
+        return true;
+}
+
 int string_parse_bool(const void *data, const char *s, void *ret)
 {
         // this is needed, since string_parse_enum assumses a
@@ -270,7 +297,7 @@ int get_setting_id(const char *key, const char *section) {
         if (!match_section) {
                 LOG_D("not matching section %s", section);
         }
-        for (int i = 0; i < G_N_ELEMENTS(allowed_settings); i++) {
+        for (size_t i = 0; i < G_N_ELEMENTS(allowed_settings); i++) {
                 if (strcmp(allowed_settings[i].name, key) == 0) {
                         bool is_rule = allowed_settings[i].rule_offset > 0;
 
@@ -402,12 +429,29 @@ bool set_from_string(void *target, struct setting setting, const char *value) {
                 case TYPE_LENGTH:
                         // Keep compatibility with old offset syntax
                         if (STR_EQ(setting.name, "offset") && string_parse_list(GINT_TO_POINTER(OFFSET_LIST), value, target)) {
-                                LOG_I("Using legacy offset syntax NxN, you should switch to the new syntax (N, N)");
+                                LOG_M("Using legacy offset syntax NxN, you should switch to the new syntax (N, N)");
+                                return true;
+                        }
+
+                        // Keep compatibility with old height semantics
+                        if (STR_EQ(setting.name, "height") && string_is_int(value)) {
+                                LOG_M("Setting 'height' has changed behaviour after dunst 1.12.0, see https://dunst-project.org/release/#v1.12.0.");
+                                LOG_M("Legacy height support may be dropped in the future. If you want to hide this message transition to");
+                                LOG_M("'height = (0, X)' for dynamic height (old behaviour equivalent) or to 'height = (X, X)' for a fixed height.");
+
+                                int height;
+                                if (!safe_string_to_int(&height, value))
+                                        return false;
+
+                                ((struct length *)target)->min = 0;
+                                ((struct length *)target)->max = height;
                                 return true;
                         }
                         return string_parse_length(target, value);
                 case TYPE_COLOR:
                         return string_parse_color(value, target);
+                case TYPE_GRADIENT:
+                        return string_parse_gradient(value, target);
                 default:
                         LOG_W("Setting type of '%s' is not known (type %i)", setting.name, setting.type);
                         return false;
@@ -438,12 +482,14 @@ bool set_rule(struct setting setting, char* value, char* section) {
                 r = rule_new(section);
                 LOG_D("Creating new rule '%s'", section);
         }
-
         return set_rule_value(r, setting, value);
 }
 
 void set_defaults(void) {
-        for (int i = 0; i < G_N_ELEMENTS(allowed_settings); i++) {
+        LOG_D("Initializing settings");
+        settings = (struct settings) {0};
+
+        for (size_t i = 0; i < G_N_ELEMENTS(allowed_settings); i++) {
                 // FIXME Rule settings can only have a default if they have an
                 // working entry in the settings struct as well. Make an
                 // alternative way of setting defaults for rules.
@@ -497,7 +543,8 @@ void save_settings(struct ini *ini) {
                                         }
                                 } else {
                                         // set as a regular setting
-                                        set_setting(curr_setting, curr_entry.value);
+                                        char *value = g_strstrip(curr_entry.value);
+                                        set_setting(curr_setting, value);
                                 }
                         } else {
                                 // interpret this section as a rule
@@ -517,14 +564,14 @@ void cmdline_load(int argc, char *argv[])
         cmdline_argv = argv;
 }
 
-int cmdline_find_option(const char *key)
+static int cmdline_find_option(const char *key, int start)
 {
         ASSERT_OR_RET(key, -1);
 
         gchar **keys = g_strsplit(key, "/", -1);
 
         for (int i = 0; keys[i] != NULL; i++) {
-                for (int j = 0; j < cmdline_argc; j++) {
+                for (int j = start; j < cmdline_argc; j++) {
                         if (STR_EQ(keys[i], cmdline_argv[j])) {
                                 g_strfreev(keys);
                                 return j;
@@ -536,12 +583,15 @@ int cmdline_find_option(const char *key)
         return -1;
 }
 
-static const char *cmdline_get_value(const char *key)
+static const char *cmdline_get_value(const char *key, int start, int *found)
 {
-        int idx = cmdline_find_option(key);
+        int idx = cmdline_find_option(key, start);
         if (idx < 0) {
                 return NULL;
         }
+
+        if (found)
+                *found = idx + 1;
 
         if (idx + 1 >= cmdline_argc) {
                 /* the argument is missing */
@@ -551,10 +601,9 @@ static const char *cmdline_get_value(const char *key)
         return cmdline_argv[idx + 1];
 }
 
-char *cmdline_get_string(const char *key, const char *def, const char *description)
+char *cmdline_get_string_offset(const char *key, const char *def, int start, int *found)
 {
-        cmdline_usage_append(key, "string", description);
-        const char *str = cmdline_get_value(key);
+        const char *str = cmdline_get_value(key, start, found);
 
         if (str)
                 return g_strdup(str);
@@ -564,10 +613,16 @@ char *cmdline_get_string(const char *key, const char *def, const char *descripti
                 return NULL;
 }
 
+char *cmdline_get_string(const char *key, const char *def, const char *description)
+{
+        cmdline_usage_append(key, "string", description);
+        return cmdline_get_string_offset(key, def, 1, NULL);
+}
+
 char *cmdline_get_path(const char *key, const char *def, const char *description)
 {
         cmdline_usage_append(key, "string", description);
-        const char *str = cmdline_get_value(key);
+        const char *str = cmdline_get_value(key, 1, NULL);
 
         if (str)
                 return string_to_path(g_strdup(str));
@@ -578,7 +633,7 @@ char *cmdline_get_path(const char *key, const char *def, const char *description
 char **cmdline_get_list(const char *key, const char *def, const char *description)
 {
         cmdline_usage_append(key, "list", description);
-        const char *str = cmdline_get_value(key);
+        const char *str = cmdline_get_value(key, 1, NULL);
 
         if (str)
                 return string_to_array(str, ",");
@@ -589,7 +644,7 @@ char **cmdline_get_list(const char *key, const char *def, const char *descriptio
 gint64 cmdline_get_time(const char *key, gint64 def, const char *description)
 {
         cmdline_usage_append(key, "time", description);
-        const char *timestring = cmdline_get_value(key);
+        const char *timestring = cmdline_get_value(key, 1, NULL);
         gint64 val = def;
 
         if (timestring) {
@@ -602,7 +657,7 @@ gint64 cmdline_get_time(const char *key, gint64 def, const char *description)
 int cmdline_get_int(const char *key, int def, const char *description)
 {
         cmdline_usage_append(key, "int", description);
-        const char *str = cmdline_get_value(key);
+        const char *str = cmdline_get_value(key, 1, NULL);
 
         if (str)
                 return atoi(str);
@@ -613,7 +668,7 @@ int cmdline_get_int(const char *key, int def, const char *description)
 double cmdline_get_double(const char *key, double def, const char *description)
 {
         cmdline_usage_append(key, "double", description);
-        const char *str = cmdline_get_value(key);
+        const char *str = cmdline_get_value(key, 1, NULL);
 
         if (str)
                 return atof(str);
@@ -624,7 +679,7 @@ double cmdline_get_double(const char *key, double def, const char *description)
 int cmdline_get_bool(const char *key, int def, const char *description)
 {
         cmdline_usage_append(key, "", description);
-        int idx = cmdline_find_option(key);
+        int idx = cmdline_find_option(key, 1);
 
         if (idx > 0)
                 return true;
@@ -634,7 +689,7 @@ int cmdline_get_bool(const char *key, int def, const char *description)
 
 bool cmdline_is_set(const char *key)
 {
-        return cmdline_get_value(key) != NULL;
+        return cmdline_get_value(key, 1, NULL) != NULL;
 }
 
 void cmdline_usage_append(const char *key, const char *type, const char *description)
@@ -653,8 +708,7 @@ void cmdline_usage_append(const char *key, const char *type, const char *descrip
         }
 
         char *tmp;
-        tmp =
-            g_strdup_printf("%s%-50s - %s\n", usage_str, key_type, description);
+        tmp = g_strdup_printf("%s%-50s - %s\n", usage_str, key_type, description);
         g_free(key_type);
 
         g_free(usage_str);

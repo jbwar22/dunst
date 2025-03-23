@@ -14,6 +14,7 @@
 #include "draw.h"
 #include "log.h"
 #include "menu.h"
+#include "rules.h"
 #include "notification.h"
 #include "option_parser.h"
 #include "queues.h"
@@ -25,6 +26,7 @@ GMainLoop *mainloop = NULL;
 
 static struct dunst_status status;
 static bool setup_done = false;
+char **config_paths = NULL;
 
 /* see dunst.h */
 void dunst_status(const enum dunst_status_field field,
@@ -162,7 +164,7 @@ static gboolean run(void *data)
                 gint64 sleep = timeout_at - now;
                 sleep = MAX(sleep, 1000); // Sleep at least 1ms
 
-                LOG_D("Sleeping for %li ms", sleep/1000);
+                LOG_D("Sleeping for %"G_GINT64_FORMAT" ms", sleep/1000);
 
                 next_timeout_id = g_timeout_add(sleep/1000, run, NULL);
         }
@@ -177,6 +179,8 @@ static gboolean run(void *data)
 
 gboolean pause_signal(gpointer data)
 {
+        (void)data;
+
         dunst_status_int(S_PAUSE_LEVEL, MAX_PAUSE_LEVEL);
         wake_up();
 
@@ -185,6 +189,8 @@ gboolean pause_signal(gpointer data)
 
 gboolean unpause_signal(gpointer data)
 {
+        (void)data;
+
         dunst_status_int(S_PAUSE_LEVEL, 0);
         wake_up();
 
@@ -193,6 +199,7 @@ gboolean unpause_signal(gpointer data)
 
 gboolean quit_signal(gpointer data)
 {
+        (void)data;
         g_main_loop_quit(mainloop);
 
         return G_SOURCE_CONTINUE;
@@ -205,15 +212,40 @@ static void teardown(void)
         queues_teardown();
 
         draw_deinit();
+
+        g_strfreev(config_paths);
+
+        g_slist_free_full(rules, (GDestroyNotify)rule_free);
+}
+
+void reload(char **const configs)
+{
+        guint length = g_strv_length(configs);
+        LOG_M("Reloading settings (with the %s files)", length != 0 ? "new" : "old");
+
+        pause_signal(NULL);
+
+        setup_done = false;
+        draw_deinit();
+
+        g_slist_free_full(rules, (GDestroyNotify)rule_free);
+        rules = NULL;
+
+        settings_free(&settings);
+        load_settings(length != 0 ? configs : config_paths);
+
+        draw_setup();
+        setup_done = true;
+
+        queues_reapply_all_rules();
+
+        unpause_signal(NULL);
 }
 
 int dunst_main(int argc, char *argv[])
 {
-
         dunst_status_int(S_PAUSE_LEVEL, 0);
         dunst_status(S_IDLE, false);
-
-        settings_init();
 
         queues_init();
 
@@ -229,14 +261,25 @@ int dunst_main(int argc, char *argv[])
         log_set_level_from_string(verbosity);
         g_free(verbosity);
 
-        char *cmdline_config_path;
-        cmdline_config_path =
-            cmdline_get_string("-conf/-config", NULL,
-                               "Path to configuration file");
+        cmdline_usage_append("-conf/-config", "string", "Path to configuration file");
 
-        settings.print_notifications = cmdline_get_bool("-print/--print", false, "Print notifications to stdout");
+        int start = 1, count = 1;
+        while (cmdline_get_string_offset("-conf/-config", NULL, start, &start))
+                count++;
 
-        settings.startup_notification = cmdline_get_bool("-startup_notification/--startup_notification",
+        // Leaves an extra space for the NULL
+        config_paths = g_malloc0(sizeof(char *) * count);
+        start = 1, count = 0;
+        char *path = NULL;
+
+        do {
+                path = cmdline_get_string_offset("-conf/-config", NULL, start, &start);
+                config_paths[count++] = path;
+        } while (path != NULL);
+
+        print_notifications = cmdline_get_bool("-print/--print", false, "Print notifications to stdout");
+
+        bool startup_notification = cmdline_get_bool("-startup_notification/--startup_notification",
                         false, "Display a notification on startup.");
 
         /* Help should always be the last to set up as calls to cmdline_get_* (as a side effect) add entries to the usage list. */
@@ -244,7 +287,7 @@ int dunst_main(int argc, char *argv[])
                 usage(EXIT_SUCCESS);
         }
 
-        load_settings(cmdline_config_path);
+        load_settings(config_paths);
         int dbus_owner_id = dbus_init();
 
         mainloop = g_main_loop_new(NULL, FALSE);
@@ -259,7 +302,7 @@ int dunst_main(int argc, char *argv[])
         guint term_src = g_unix_signal_add(SIGTERM, quit_signal, NULL);
         guint int_src = g_unix_signal_add(SIGINT, quit_signal, NULL);
 
-        if (settings.startup_notification) {
+        if (startup_notification) {
                 struct notification *n = notification_create();
                 n->id = 0;
                 n->appname = g_strdup("dunst");
@@ -288,6 +331,8 @@ int dunst_main(int argc, char *argv[])
         dbus_teardown(dbus_owner_id);
 
         teardown();
+
+        settings_free(&settings);
 
         return 0;
 }

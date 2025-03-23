@@ -3,11 +3,12 @@
 # prefix should be the root of the repository
 PREFIX="${PREFIX:-../..}"
 TESTDIR="$PREFIX/test/functional-tests"
+DUNST="${DUNST:-$PREFIX/dunst}"
+DUNSTIFY="${DUNSTIFY:-$PREFIX/dunstify}"
+DUNSTCTL="${DUSNTCTL:-$PREFIX/dunstctl}"
 
 # for run_script
 export PATH="$TESTDIR:$PATH"
-export DUNST="${DUNST:-$PREFIX/dunst}"
-export DUNSTIFY="${DUNSTIFY:-$PREFIX/dunstify}"
 
 function keypress {
     echo "press enter to continue..."
@@ -20,7 +21,7 @@ function tmp_dunstrc {
 }
 
 function tmp_clean {
-	rm "$TESTDIR/dunstrc.tmp"
+    rm "$TESTDIR/dunstrc.tmp"
 }
 
 function start_dunst {
@@ -156,7 +157,7 @@ function width {
 }
 
 function test_height {
-    tmp_dunstrc dunstrc.default "height = $1"
+    tmp_dunstrc dunstrc.default "height = (0, $1)"
     start_dunst dunstrc.tmp
     $DUNSTIFY -a "dunst tester" -u c "height = $1"
     $DUNSTIFY -a "dunst tester" -u c "Temporibus accusantium libero sequi at nostrum dolor sequi sed. Cum minus reprehenderit voluptatibus laboriosam et et ut. Laudantium blanditiis omnis ipsa rerum quas velit ut. Quae voluptate soluta enim consequatur libero eum similique ad. Veritatis neque consequatur et aperiam quisquam id nostrum. Consequatur voluptas aut ut omnis atque cum perferendis. Possimus laudantium tempore iste qui nemo voluptate quod. Labore totam debitis consectetur amet. Maxime quibusdam ipsum voluptates quod ex nam sunt. Officiis repellat quod maxime cumque tenetur. Veritatis labore aperiam repellendus. Provident dignissimos ducimus voluptates."
@@ -298,7 +299,7 @@ function dynamic_height {
     echo "dynamic_height"
     echo "###################################"
 
-    for max in 50 100 200 ""; do
+    for max in 50 100 200 300 ""; do
         for min in 50 100 200 ""; do
             [[ $min -gt $max ]] && continue
 
@@ -335,14 +336,14 @@ function vertical_align {
 
     for valign in top center bottom; do
         for padding_case in "${padding_cases[@]}"; do
-            read vertical horizontal icon height label <<<"$padding_case"
+            read vertical horizontal icon height_min label <<<"$padding_case"
 
             padding_settings="
                 padding = $vertical
                 horizontal_padding = $horizontal
                 text_icon_padding = $icon
                 vertical_alignment = $valign
-                height = ($height, )
+                height = ($height_min, )
             "
 
             tmp_dunstrc dunstrc.vertical_align "$padding_settings"
@@ -352,6 +353,7 @@ function vertical_align {
                 for alignment in left center right; do
                     category="icon-$position-alignment-$alignment"
                     $DUNSTIFY -a "dunst tester" --hints string:category:$category -u n "$category"$'\n'"emphasis: $label"$'\n'"vertical alignment: $valign"
+                    echo $category
                 done
             done
 
@@ -362,6 +364,7 @@ function vertical_align {
                 for alignment in left center right; do
                     category="icon-$position-alignment-$alignment-hide"
                     $DUNSTIFY -a "dunst tester" --hints string:category:$category -u n "$category"$'\n'"emphasis: $label"$'\n'"vertical alignment: $valign"
+                    echo $category
                 done
             done
 
@@ -369,6 +372,81 @@ function vertical_align {
             keypress
         done
     done
+}
+
+function hot_reload {
+    echo "###################################"
+    echo "hot_reload"
+    echo "###################################"
+
+    tmp_dunstrc dunstrc.default "background = \"#313131\""
+    start_dunst dunstrc.tmp
+
+    $DUNSTIFY -a "dunst tester" "Nice notification" "This will change once"
+    $DUNSTIFY -a "dunst tester" --hints string:category:change "Change" "And this too"
+    keypress
+
+    tmp_dunstrc dunstrc.default "
+        [change]
+        category = change
+        background = \"#525\"
+        set_category = notchange
+        urgency = critical
+    "
+    $DUNSTCTL reload
+    keypress
+
+    $DUNSTCTL reload
+    keypress
+
+    $DUNSTCTL reload "$TESTDIR/dunstrc.hot_reload"
+    $DUNSTIFY -a "dunst tester" "New notification" "Now we are using another config file"
+    keypress
+
+    tmp_clean
+}
+
+function dmenu_order {
+    echo "###################################"
+    echo "dmenu_order"
+    echo "###################################"
+
+    tmp_dunstrc dunstrc.default "sort=urgency"
+    start_dunst dunstrc.tmp
+
+    for i in critical normal low
+    do
+        $DUNSTIFY -a "dunst tester" -u $i --action="replyAction,Reply" --action="forwardAction,Forward" "Message Received $i" "Sorted by urgency" &
+        sleep .5
+    done
+
+    $DUNSTCTL context
+    keypress
+
+    tmp_dunstrc dunstrc.default "sort=update"
+    start_dunst dunstrc.tmp
+
+    for i in critical normal low
+    do
+        $DUNSTIFY -a "dunst tester" -u $i --action="replyAction,Reply" --action="forwardAction,Forward" "Message Received $i" "Sorted by time" &
+        sleep .5
+    done
+
+    $DUNSTCTL context
+    keypress
+
+    tmp_dunstrc dunstrc.default "sort=false"
+    start_dunst dunstrc.tmp
+
+    for i in 69 98 34 1
+    do
+        $DUNSTIFY -a "dunst tester" -r $i --action="replyAction,Reply" --action="forwardAction,Forward" "Message Received $i" "Sorted by id" &
+        sleep .5
+    done
+
+    $DUNSTCTL context
+    keypress
+    tmp_clean
 }
 
 if [ -n "$1" ]; then
@@ -393,6 +471,8 @@ else
     separator_click
     dynamic_height
     vertical_align
+    hot_reload
+    dmenu_order
 fi
 
 killall dunst

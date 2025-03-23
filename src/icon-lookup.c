@@ -168,7 +168,7 @@ void get_theme_path(void) {
 
         add_paths_from_env(theme_path, "XDG_DATA_DIRS", "icons", "/usr/local/share/:/usr/share/");
         g_ptr_array_add(theme_path, g_strdup("/usr/share/pixmaps"));
-        for (int i = 0; i < theme_path->len; i++) {
+        for (size_t i = 0; i < theme_path->len; i++) {
                 LOG_D("Theme locations: %s", (char*)theme_path->pdata[i]);
         }
 }
@@ -179,7 +179,7 @@ int load_icon_theme(char *name) {
                 get_theme_path();
         }
 
-        for (int i = 0; i < theme_path->len; i++) {
+        for (size_t i = 0; i < theme_path->len; i++) {
                 int theme_index = load_icon_theme_from_dir(theme_path->pdata[i], name);
                 if (theme_index != -1)
                         return theme_index;
@@ -302,28 +302,11 @@ char *find_icon_path(const char *name, int size) {
         if (STR_EMPTY(name))
                 return NULL;
 
-        gchar *uri_path = NULL;
-
-        if (g_str_has_prefix(name, "file://")) {
-                uri_path = g_filename_from_uri(name, NULL, NULL);
-                if (is_readable_file(uri_path))
-                        return uri_path;
-                else
-                        return NULL;
-        }
-
-        /* absolute path? */
-        if (name[0] == '/' || name[0] == '~') {
-                if (is_readable_file(name))
-                        return g_strdup(name);
-                else
-                        return NULL;
-        }
-
         if (!default_themes_index) {
-                LOG_W("No icon theme has been set.");
+                LOG_W("No icon theme has been set");
                 return NULL;
         }
+
         for (int i = 0; i < default_themes_count; i++) {
                 char *icon = find_icon_in_theme_with_inherit(name,
                                 default_themes_index[i], size);

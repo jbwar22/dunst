@@ -42,14 +42,17 @@ struct notification_colors {
         struct color frame;
         struct color bg;
         struct color fg;
-        struct color highlight;
+        struct gradient *highlight;
 };
 
 struct notification {
         NotificationPrivate *priv;
-        int id;
+        gint id;
         char *dbus_client;
         bool dbus_valid;
+
+        // We keep the original notification properties here when it is modified
+        struct rule *original;
 
         char *appname;
         char *summary;
@@ -82,8 +85,8 @@ struct notification {
         char *default_action_name; /**< The name of the action to be invoked on do_action */
 
         enum markup_mode markup;
-        const char *format;
-        const char **scripts;
+        char *format;
+        char **scripts;
         int script_count;
         const char **insert_scripts;
         int insert_script_count;
@@ -201,6 +204,8 @@ void notification_icon_replace_path(struct notification *n, const char *new_icon
  */
 void notification_icon_replace_data(struct notification *n, GVariant *new_icon);
 
+void notification_replace_format(struct notification *n, const char *format);
+
 /**
  * Run the script associated with the
  * given notification set to run on display
@@ -254,7 +259,7 @@ void notification_open_url(struct notification *n);
 
 /**
  * Open the context menu for the notification.
- * 
+ *
  * Convenience function that creates the GList and passes it to context_menu_for().
  */
 void notification_open_context_menu(struct notification *n);
@@ -277,6 +282,8 @@ const char *notification_urgency_to_string(const enum urgency urgency);
  * @return the string representation for `in`
  */
 const char *enum_to_string_fullscreen(enum behavior_fullscreen in);
+
+void notification_keep_original(struct notification *n);
 
 #endif
 /* vim: set ft=c tabstop=8 shiftwidth=8 expandtab textwidth=0: */
