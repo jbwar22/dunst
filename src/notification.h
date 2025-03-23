@@ -88,7 +88,7 @@ struct notification {
         char *format;
         char **scripts;
         int script_count;
-        const char **insert_scripts;
+        char **insert_scripts;
         int insert_script_count;
         struct notification_colors colors;
 
@@ -223,6 +223,8 @@ void notification_run_script(struct notification *n);
  * settings.always_run_script is not set, do nothing.
  */
 void notification_run_insert_script(struct notification *n);
+
+void notification_run_generic_script(struct notification *n, char **scripts, int script_count);
 
 /**
  * print a human readable representation
